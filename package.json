@@ -11,6 +11,8 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "dotenv": "^10.0.0",
+    "ethers": "^5.5.1",
     "express": "^4.17.1"
   },
   "devDependencies": {
