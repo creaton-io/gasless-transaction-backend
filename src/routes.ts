@@ -2,36 +2,23 @@ import 'dotenv/config';
 import { Router } from 'express';
 import { ethers, Contract } from "ethers";
 import { BaseProvider } from '@ethersproject/providers';
-import axios from 'axios';
 import creaton_contracts from './contracts';
+import { getCreators, ICreator } from './datasources/subgraph';
+import { addGasless, removeGasless } from './datasources/biconomy';
 
 const routes = Router();
 
-routes.get('/', async (req, res) => {
-  return res.json({hola: "foo"});
-});
-
+/**
+ * Gets all exisiting creators and sets their gasless settings according to our rules
+ */
 routes.get('/gaslessCheck', async (req, res) => {
-  const query = `{
-    creators {
-      id
-      user
-      creatorContract
-    }
-  }`;
-  const response = await axios.post(
-    process.env.GRAPH_URI, 
-    { query },
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }}
-  );
+  const users: ICreator[] = await getCreators();
 
   const added = [];
   const removed = [];
-  const users: any = response.data.data.creators;
-  let a: any = '';
   const method = 'upload';
-  for(a of users){
-    if(await shouldAddGasless(a["user"])){
+  for(let a of users){
+    if(await holdsEnoughCreateToken(a["user"])){
       added.push(a["user"]);
       addGasless('Creator', a['creatorContract'], method);
     }else{
@@ -43,6 +30,9 @@ routes.get('/gaslessCheck', async (req, res) => {
   return res.json({added, removed});
 });
 
+/**
+ * Enables gasless transactions for a Creator-upload method according to our rules
+ */
 routes.post('/gasless', async (req, res) => { 
   const walletAddress: string = req.body.walletAddress;
   const creatorContractAddress: string = req.body.creatorContractAddress;
@@ -61,14 +51,20 @@ routes.post('/gasless', async (req, res) => {
   }
 
   const method = 'upload';
-  if(await shouldAddGasless(walletAddress)){
+  if(await holdsEnoughCreateToken(walletAddress)){
     return res.json(addGasless('Creator', creatorContractAddress, method));
   }else{
     return res.json(removeGasless(creatorContractAddress, method));
   }
 });
 
-async function shouldAddGasless(walletAddress: string){
+/**
+ * Checks if the provided wallet Address holds enough (> configured threshold) of CREATE tokens
+ * 
+ * @param walletAddress 
+ * @returns 
+ */
+async function holdsEnoughCreateToken(walletAddress: string){
   const tokenAddress: string = process.env.TOKEN_ADDRESS || '';
   const threshold: string = process.env.TOKEN_AMOUNT_THRESHOLD || '0';
 
@@ -79,77 +75,9 @@ async function shouldAddGasless(walletAddress: string){
   return (balance >= threshold);
 }
 
-async function addGasless(contractName: string, contractAddress: string, method: string) {
-  // Add the Contract
-  const addContractData = new URLSearchParams({
-    contractName: contractName + contractAddress.slice(2, 10),
-    contractAddress: contractAddress,
-    abi: JSON.stringify(creaton_contracts[contractName].abi(contractName)),
-    contractType: 'SC',
-    metaTransactionType: 'TRUSTED_FORWARDER',
-  });
-
-  let response = await axios.post('https://api.biconomy.io/api/v1/meta-api/public-api/addContract', 
-    new URLSearchParams(addContractData),
-    {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        authToken: process.env.BICONOMY_AUTH,
-        apiKey: process.env.BICONOMY_API,
-      },
-    }
-  );
-
-  if(response.status != 200){
-    return {error: `An error has occured adding the Contract: ${response.statusText}`};
-  }
-
-  // Add the Method
-  const addMethodData = {
-    apiType: 'native',
-    methodType: 'write',
-    name: method + contractAddress.slice(2, 6),
-    contractAddress: contractAddress,
-    method,
-  };
-
-  response = await axios.post('https://api.biconomy.io/api/v1/meta-api/public-api/addMethod', 
-    new URLSearchParams(addMethodData),
-    {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        authToken: process.env.BICONOMY_AUTH,
-        apiKey: process.env.BICONOMY_API,
-      },
-    }
-  );
-
-  if(response.status != 200){
-    return {error: `An error has occured adding the Method: ${response.statusText}`};
-  }
-
-  return response.data;
-}
-
-async function removeGasless(contractAddress: string, method: string) {
-  const response = await axios.delete('https://api.biconomy.io/api/v1/meta-api/public-api/deleteMethod', 
-    {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        authToken: process.env.BICONOMY_AUTH,
-        apiKey: process.env.BICONOMY_API,
-      },
-      data: new URLSearchParams({ contractAddress, method }),
-    }
-  );
-
-  if(response.status != 200){
-    return {error: `An error has occured: ${response.statusText}`};
-  }
-
-  return response.data;
-}
-
+/**
+ * Configures a contract + method to be used as gasless
+ */
 routes.post('/gaslessContractAndMethod', async (req, res) => { 
   const contractName: string = req.body.contractName;
   const contractAddress: string = req.body.contractAddress;
