@@ -20,10 +20,10 @@ routes.get('/gaslessCheck', async (req, res) => {
   for(let a of users){
     if(await holdsEnoughCreateToken(a["user"])){
       added.push(a["user"]);
-      addGasless('Creator', a['creatorContract'], method);
+      await addGasless('Creator', a['creatorContract'], method);
     }else{
       removed.push(a["user"]);
-      removeGasless(a['creatorContract'], method);
+      await removeGasless(a['creatorContract'], method);
     }
   }
 
@@ -52,9 +52,9 @@ routes.post('/gasless', async (req, res) => {
 
   const method = 'upload';
   if(await holdsEnoughCreateToken(walletAddress)){
-    return res.json(addGasless('Creator', creatorContractAddress, method));
+    return res.json(await addGasless('Creator', creatorContractAddress, method));
   }else{
-    return res.json(removeGasless(creatorContractAddress, method));
+    return res.json(await removeGasless(creatorContractAddress, method));
   }
 });
 
@@ -83,7 +83,7 @@ routes.post('/gaslessContractAndMethod', async (req, res) => {
   const contractAddress: string = req.body.contractAddress;
   const method: string = req.body.method;
 
-  return res.json(addGasless(contractName, contractAddress, method));
+  return res.json(await addGasless(contractName, contractAddress, method));
 });
 
 export default routes;
